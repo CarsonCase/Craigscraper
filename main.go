@@ -1,40 +1,13 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"golang.org/x/net/html"
 )
-
-func getHTMLPage(url string) *html.Node {
-	response, err := http.Get(url)
-	if err != nil {
-		log.Fatal("Get Error")
-	}
-
-	defer response.Body.Close()
-
-	doc, err := html.Parse(response.Body)
-	if err != nil {
-		log.Fatal("Read Response Error")
-	}
-	return doc
-}
-
-func findHTML(n *html.Node, foo func(n *html.Node)) {
-	foo(n)
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		findHTML(c, foo)
-	}
-}
 
 type Counter struct {
 	InProgress int
@@ -49,38 +22,14 @@ func (c *Counter) incrementComplete() {
 	c.Complete++
 }
 
-func scrapePage(url string, counter *Counter, listingChan chan Listing, pageChan chan bool) {
-	doc := getHTMLPage(url)
-	listing := Listing{}
-	findHTML(doc, func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "li" {
-			for _, a := range n.Attr {
-				if a.Key == "title" {
-					counter.incrementInProgress()
-					listing = Listing{Title: a.Val}
-					break
-				}
-			}
-
-			findHTML(n, func(n *html.Node) {
-				if n.Type == html.ElementNode && n.Data == "div" {
-					for _, a := range n.Attr {
-						if a.Key == "class" && a.Val == "price" {
-							counter.incrementComplete()
-							listing.Price = n.FirstChild.Data
-							listingChan <- listing
-							break
-						}
-					}
-				}
-			})
-		}
-	})
-	pageChan <- true
-}
-
-func searchCity(cityUrl string, pagesToSearch int, counter *Counter, listings chan Listing) {
-	defer close(listings)
+// searchCity searches the specified city for listings.
+//
+// The function takes a city URL, a number of pages to search, a counter, a
+// listing channel, and a done channel as arguments. The counter is used to
+// track the number of listings that are currently being scraped. The listing
+// channel is used to send listings to the main function. The done channel is
+// used to signal that a city has been scraped.
+func searchCity(cityUrl string, pagesToSearch int, counter *Counter, listings chan Listing, done chan bool) {
 
 	doneScrapingPage := make(chan bool)
 	for i := 0; i <= pagesToSearch; i++ {
@@ -88,10 +37,17 @@ func searchCity(cityUrl string, pagesToSearch int, counter *Counter, listings ch
 	}
 
 	for i := 0; i <= pagesToSearch; i++ {
-		fmt.Println(<-doneScrapingPage)
+		<-doneScrapingPage
+		fmt.Println("Finished page:\t", i)
 	}
+	done <- true
+
 }
 
+// getCities gets the cities from the specified URL.
+//
+// The function takes a URL as an argument. It returns a slice of strings,
+// where each string is the URL of a city.
 func getCities(url string) (cities []string) {
 	doc := getHTMLPage(url)
 
@@ -109,127 +65,82 @@ func getCities(url string) (cities []string) {
 	return cities
 }
 
-type Admin struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
-type Response struct {
-	Admin Admin  `json:"admin"`
-	Token string `json:"token"`
-}
-
-type Listing struct {
-	Title string `json:"title"`
-	Price string `json:"price"`
-}
-
-func post(url string, payload []byte, client *http.Client, headerFunc func(req *http.Request)) []byte {
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
-	if err != nil {
-		log.Fatal("Error creating Auth Token request:", err)
-		return []byte{}
-	}
-	headerFunc(req)
-
-	resp, err := client.Do(req)
-
-	if resp.StatusCode != http.StatusOK {
-		log.Fatal(resp)
-	}
-
-	if err != nil {
-		log.Fatal("Error fetching Auth Token")
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatal("Error reading auth response:", err)
-		return []byte{}
-	}
-	return body
-
-}
-
-func postData(pbUrl string, listingData Listing) {
-	pbAuthUrl := pbUrl + "/api/admins/auth-with-password"
-	pbListingUrl := pbUrl + "/api/collections/listing/records"
-
-	// Create an HTTP client
-	client := &http.Client{}
-
-	// Get Auth Token
-	payload := []byte(`{"identity":"carsonpcase@gmail.com", "password": "7G}!>LDt.6sjhmf"}`)
-
-	result := post(pbAuthUrl, payload, client, func(req *http.Request) {
-		req.Header.Set("Content-Type", "application/json")
-	})
-
-	var authResponse Response
-
-	err := json.Unmarshal(result, &authResponse)
-	if err != nil {
-		log.Fatal("Error unmarshaling auth token response ", err)
-	}
-	auth := authResponse.Token
-	payload, err = json.Marshal(listingData)
-
-	if err != nil {
-		log.Fatal("Error marshalling JSON:", err)
-		return
-	}
-	post(pbListingUrl, payload, client, func(req *http.Request) {
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+auth)
-	})
-
-}
-
-var wg sync.WaitGroup
-
-func printValues(lc chan Listing, done chan bool) {
+// storeValues stores the listings in the specified database.
+//
+// The function takes a listing channel, a done channel, and a database URL
+// as arguments. The listing channel is used to receive listings from the
+// scraping functions. The done channel is used to signal that all listings
+// have been stored. The database URL is the URL of the database to store the
+// listings in.
+func storeValues(lc chan Listing, done chan bool, pbUrl string) {
+	var wg sync.WaitGroup
 	for {
 		val, ok := <-lc
 
 		if !ok {
-			fmt.Println("closed")
 			break
 		}
+		count := 0
+		go func(l Listing) {
+			wg.Add(1)
+			postData(pbUrl, l)
 
-		fmt.Println(val)
+			// Move the cursor to the beginning of the line
+			fmt.Print("\r")
+
+			// Print the current count without a newline
+			fmt.Printf("Total Listings Published To Database: ", count)
+
+			// Flush the output to ensure it gets printed immediately
+			os.Stdout.Sync()
+
+			time.Sleep(500 * time.Millisecond) // Simulate some work
+
+			// Increment the count
+			count++
+
+			wg.Done()
+		}(val)
 	}
+	wg.Wait()
 	done <- true
 }
 
+// main is the entry point for the program.
+//
+// The function does the following:
+//
+//  1. Gets the cities from the specified URL.
+//  2. Creates a counter to track the number of listings that are currently
+//     being scraped.
+//  3. Creates a listing channel to send listings to the main function.
+//  4. Creates a done channel to signal that all listings have been scraped.
+//  5. Creates a goroutine to store the listings in the database.
+//  6. Creates a goroutine to search each city for listings.
+//  7. Waits for all goroutines to finish.
+//  8. Prints the total number of listings that were scraped.
 func main() {
 	pbUrl := "http://127.0.0.1:8090"
-	cities := getCities("https://geo.craigslist.org/iso/us")
+	cities := getCities("https://geo.craigslist.org/iso/us")[0:][10:15]
 	counter := Counter{0, 0}
 	startTime := time.Now()
-	listOfListings := []Listing{}
 	lc := make(chan Listing)
 	done := make(chan bool)
-	go printValues(lc, done)
+	go storeValues(lc, done, pbUrl)
 
+	cityStatus := make(chan bool)
 	for _, city := range cities {
 		fmt.Println("Searching:\t" + city)
-		go searchCity(city, 10, &counter, lc)
-
-		if len(os.Args) > 1 && os.Args[1] == "--store" {
-			for j, listing := range listOfListings {
-				wg.Add(1)
-				go func(l Listing) {
-					defer wg.Done()
-					fmt.Println("Storing:\t"+city+"\tElement: ", j, "/", len(listOfListings))
-					postData(pbUrl, l)
-				}(listing)
-			}
-		}
+		go searchCity(city, 3, &counter, lc, cityStatus)
 	}
+
+	for cityI := range cities {
+		<-cityStatus
+		fmt.Println("Finished city:\t", cityI)
+	}
+	close(lc)
+	fmt.Println("Scraping Complete")
 	<-done
-	// best 268.873824ms
-	wg.Wait()
 	fmt.Println("Completed in: ", time.Since(startTime), " seconds!")
 	fmt.Println("Print Complete\t#", counter.Complete, "elements printed")
 }

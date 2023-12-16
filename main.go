@@ -120,8 +120,13 @@ func storeValues(lc chan Listing, done chan bool, pbUrl string) {
 //  7. Waits for all goroutines to finish.
 //  8. Prints the total number of listings that were scraped.
 func main() {
+
+	startCityIndex := 0
+	endCityIndex := 5
+	pagesToScan := 3
+
 	pbUrl := "http://127.0.0.1:8090"
-	cities := getCities("https://geo.craigslist.org/iso/us")[0:][10:15]
+	cities := getCities("https://geo.craigslist.org/iso/us")[0:][startCityIndex:endCityIndex]
 	counter := Counter{0, 0}
 	startTime := time.Now()
 	lc := make(chan Listing)
@@ -131,7 +136,7 @@ func main() {
 	cityStatus := make(chan bool)
 	for _, city := range cities {
 		fmt.Println("Searching:\t" + city)
-		go searchCity(city, 3, &counter, lc, cityStatus)
+		go searchCity(city, pagesToScan, &counter, lc, cityStatus)
 	}
 
 	for cityI := range cities {

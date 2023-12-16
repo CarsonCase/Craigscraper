@@ -21,6 +21,7 @@ type Response struct {
 type Listing struct {
 	Title string `json:"title"`
 	Price string `json:"price"`
+	Link  string `json:"link"`
 }
 
 // post is a helper function to make HTTP POST requests.

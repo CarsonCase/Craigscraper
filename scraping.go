@@ -34,7 +34,7 @@ func scrapePage(url string, counter *Counter, listingChan chan Listing, pageChan
 						if a.Key == "class" && a.Val == "price" {
 							counter.incrementComplete()
 							listing.Price = n.FirstChild.Data
-							listing.link = url
+							listing.Link = url
 							listingChan <- listing
 							break
 						}

@@ -64,7 +64,7 @@ func post(url string, payload []byte, client *http.Client, headerFunc func(req *
 // The function first gets an auth token from the server using the
 // `auth-with-password` endpoint. It then uses the auth token to post
 // the listing data to the `listing/records` endpoint.
-func postData(pbUrl string, listingData Listing) {
+func postData(pbUrl string, listingData Listing, onComplete func()) {
 	pbAuthUrl := pbUrl + "/api/admins/auth-with-password"
 	pbListingUrl := pbUrl + "/api/collections/listing/records"
 
@@ -95,5 +95,6 @@ func postData(pbUrl string, listingData Listing) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+auth)
 	})
+	onComplete()
 
 }

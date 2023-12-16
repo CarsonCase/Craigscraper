@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -80,27 +79,10 @@ func storeValues(lc chan Listing, done chan bool, pbUrl string) {
 		if !ok {
 			break
 		}
-		count := 0
-		go func(l Listing) {
-			wg.Add(1)
-			postData(pbUrl, l)
-
-			// Move the cursor to the beginning of the line
-			fmt.Print("\r")
-
-			// Print the current count without a newline
-			fmt.Printf("Total Listings Published To Database: ", count)
-
-			// Flush the output to ensure it gets printed immediately
-			os.Stdout.Sync()
-
-			time.Sleep(500 * time.Millisecond) // Simulate some work
-
-			// Increment the count
-			count++
-
+		wg.Add(1)
+		go postData(pbUrl, val, func() {
 			wg.Done()
-		}(val)
+		})
 	}
 	wg.Wait()
 	done <- true
@@ -121,9 +103,9 @@ func storeValues(lc chan Listing, done chan bool, pbUrl string) {
 //  8. Prints the total number of listings that were scraped.
 func main() {
 
-	startCityIndex := 0
-	endCityIndex := 5
-	pagesToScan := 3
+	startCityIndex := 5
+	endCityIndex := 6
+	pagesToScan := 1
 
 	pbUrl := "http://127.0.0.1:8090"
 	cities := getCities("https://geo.craigslist.org/iso/us")[0:][startCityIndex:endCityIndex]
@@ -131,6 +113,7 @@ func main() {
 	startTime := time.Now()
 	lc := make(chan Listing)
 	done := make(chan bool)
+
 	go storeValues(lc, done, pbUrl)
 
 	cityStatus := make(chan bool)
@@ -144,7 +127,7 @@ func main() {
 		fmt.Println("Finished city:\t", cityI)
 	}
 	close(lc)
-	fmt.Println("Scraping Complete")
+	fmt.Println("Scraping Completed in: ", time.Since(startTime), " seconds!")
 	<-done
 	fmt.Println("Completed in: ", time.Since(startTime), " seconds!")
 	fmt.Println("Print Complete\t#", counter.Complete, "elements printed")

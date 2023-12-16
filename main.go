@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -71,7 +73,7 @@ func getCities(url string) (cities []string) {
 // scraping functions. The done channel is used to signal that all listings
 // have been stored. The database URL is the URL of the database to store the
 // listings in.
-func storeValues(lc chan Listing, done chan bool, pbUrl string) {
+func storeValues(lc chan Listing, done chan bool, db *sql.DB) {
 	var wg sync.WaitGroup
 	for {
 		val, ok := <-lc
@@ -80,9 +82,11 @@ func storeValues(lc chan Listing, done chan bool, pbUrl string) {
 			break
 		}
 		wg.Add(1)
-		go postData(pbUrl, val, func() {
-			wg.Done()
-		})
+		err := insertListing(db, val)
+		wg.Done()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 	wg.Wait()
 	done <- true
@@ -102,19 +106,22 @@ func storeValues(lc chan Listing, done chan bool, pbUrl string) {
 //  7. Waits for all goroutines to finish.
 //  8. Prints the total number of listings that were scraped.
 func main() {
+	fmt.Println("Setting up server")
+	db := SetupDB()
 
-	startCityIndex := 5
-	endCityIndex := 6
-	pagesToScan := 1
+	fmt.Println("Server setup complete")
 
-	pbUrl := "http://127.0.0.1:8090"
+	startCityIndex := 10
+	endCityIndex := 15
+	pagesToScan := 4
+
 	cities := getCities("https://geo.craigslist.org/iso/us")[0:][startCityIndex:endCityIndex]
 	counter := Counter{0, 0}
 	startTime := time.Now()
 	lc := make(chan Listing)
 	done := make(chan bool)
 
-	go storeValues(lc, done, pbUrl)
+	go storeValues(lc, done, db)
 
 	cityStatus := make(chan bool)
 	for _, city := range cities {
@@ -129,6 +136,7 @@ func main() {
 	close(lc)
 	fmt.Println("Scraping Completed in: ", time.Since(startTime), " seconds!")
 	<-done
+	fmt.Println(getAllListings(db))
 	fmt.Println("Completed in: ", time.Since(startTime), " seconds!")
 	fmt.Println("Print Complete\t#", counter.Complete, "elements printed")
 }

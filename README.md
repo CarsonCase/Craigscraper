@@ -3,10 +3,9 @@ Don't use this for any commercial purposes. Craigslist will probably sue you. Th
 
 That said
 ## How to use it
-1. download [https://pocketbase.io/](Pocketbase) into this directory and run `./pocketbase serve`
-2. Use pocketbase to create a "listing" collection with "title" and "price" string fields 
-3. open main.go
-4. adjust values in main() func
-5. `go build main.go`
-6. `./main`
-7. Pocketbase will be filled with listing elements of cars. Feel free to adjust main.go to fit other listing scraping
+1. Create a `db/listings.db` file
+2. open main.go
+3. adjust values in main() func
+4. `go build main.go`
+5. `./main`
+6. The sqllite database will be filled with scraping info, look at the notebook to see examples of using the data

@@ -10,19 +10,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-type Counter struct {
-	InProgress int
-	Complete   int
-}
-
-func (c *Counter) incrementInProgress() {
-	c.InProgress++
-}
-
-func (c *Counter) incrementComplete() {
-	c.Complete++
-}
-
 // searchCity searches the specified city for listings.
 //
 // The function takes a city URL, a number of pages to search, a counter, a
@@ -30,11 +17,11 @@ func (c *Counter) incrementComplete() {
 // track the number of listings that are currently being scraped. The listing
 // channel is used to send listings to the main function. The done channel is
 // used to signal that a city has been scraped.
-func searchCity(cityUrl string, pagesToSearch int, counter *Counter, listings chan Listing, done chan bool) {
+func searchCity(cityUrl string, pagesToSearch int, context *Context, listings chan Listing, done chan bool) {
 
 	doneScrapingPage := make(chan bool)
 	for i := 0; i <= pagesToSearch; i++ {
-		go scrapePage(cityUrl+"/search/cta#search=1~gallery~"+string(i)+"~0", counter, listings, doneScrapingPage)
+		go scrapePage(cityUrl+"/search/cta#search=1~gallery~"+string(i)+"~0", context, listings, doneScrapingPage)
 	}
 
 	for i := 0; i <= pagesToSearch; i++ {
@@ -49,8 +36,8 @@ func searchCity(cityUrl string, pagesToSearch int, counter *Counter, listings ch
 //
 // The function takes a URL as an argument. It returns a slice of strings,
 // where each string is the URL of a city.
-func getCities(url string) (cities []string) {
-	doc := getHTMLPage(url)
+func getCities(url string, context *Context) (cities []string) {
+	doc := context.getHTMLPage(url)
 
 	findHTML(doc, func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "a" {
@@ -111,12 +98,12 @@ func main() {
 
 	fmt.Println("Server setup complete")
 
-	startCityIndex := 10
-	endCityIndex := 15
 	pagesToScan := 4
+	batchSize := 5
 
-	cities := getCities("https://geo.craigslist.org/iso/us")[0:][startCityIndex:endCityIndex]
-	counter := Counter{0, 0}
+	context := Context{}
+	context.SetUpScraper("proxies_list.txt")
+	cities := getCities("https://geo.craigslist.org/iso/us", &context)[1:414][0:125]
 	startTime := time.Now()
 	lc := make(chan Listing)
 	done := make(chan bool)
@@ -124,19 +111,27 @@ func main() {
 	go storeValues(lc, done, db)
 
 	cityStatus := make(chan bool)
-	for _, city := range cities {
-		fmt.Println("Searching:\t" + city)
-		go searchCity(city, pagesToScan, &counter, lc, cityStatus)
+	for i := 0; i < len(cities); i += batchSize {
+
+		for j := i; j < i+batchSize; j++ {
+			city := cities[j]
+			fmt.Println("Searching:\t" + city)
+			go searchCity(city, pagesToScan, &context, lc, cityStatus)
+		}
+
+		for j := i; j < i+batchSize; j++ {
+			city := cities[j]
+			<-cityStatus
+			fmt.Println("Finished city:\t", city)
+		}
+
 	}
 
-	for cityI := range cities {
-		<-cityStatus
-		fmt.Println("Finished city:\t", cityI)
-	}
+	// todo. If cities size isn't divisible by batch size, do the last cities
+
 	close(lc)
 	fmt.Println("Scraping Completed in: ", time.Since(startTime), " seconds!")
 	<-done
-	fmt.Println(getAllListings(db))
 	fmt.Println("Completed in: ", time.Since(startTime), " seconds!")
-	fmt.Println("Print Complete\t#", counter.Complete, "elements printed")
+	fmt.Println("Print Complete\t#", context.Complete, "elements printed")
 }

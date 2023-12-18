@@ -1,11 +1,50 @@
 package main
 
 import (
+	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 
 	"golang.org/x/net/html"
 )
+
+type Context struct {
+	RequestCount int
+	InProgress   int
+	Complete     int
+	Proxies      []string
+}
+
+func (c *Context) incrementInProgress() {
+	c.InProgress++
+}
+
+func (c *Context) incrementComplete() {
+	c.Complete++
+}
+
+func (c *Context) SetUpScraper(filename string) ([]string, error) {
+	// Open the text file.
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	// Read the lines from the file.
+	lines, err := ioutil.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the lines to an array of strings.
+	proxies := strings.Split(string(lines), "\n")
+	c.Proxies = proxies
+	return proxies, nil
+}
 
 // scrapePage scrapes the specified URL for listings.
 //
@@ -15,14 +54,14 @@ import (
 // the main function. The page channel is used to signal that a page has been
 // scraped.
 // There are too layers of callback functions, 1 to find li elements, and another to find the price data WITHIN that element
-func scrapePage(url string, counter *Counter, listingChan chan Listing, pageChan chan bool) {
-	doc := getHTMLPage(url)
+func scrapePage(url string, context *Context, listingChan chan Listing, pageChan chan bool) {
+	doc := context.getHTMLPage(url)
 	listing := Listing{}
 	findHTML(doc, func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "li" {
 			for _, a := range n.Attr {
 				if a.Key == "title" {
-					counter.incrementInProgress()
+					context.incrementInProgress()
 					listing = Listing{Title: a.Val}
 					break
 				}
@@ -32,7 +71,7 @@ func scrapePage(url string, counter *Counter, listingChan chan Listing, pageChan
 				if n.Type == html.ElementNode && n.Data == "div" {
 					for _, a := range n.Attr {
 						if a.Key == "class" && a.Val == "price" {
-							counter.incrementComplete()
+							context.incrementComplete()
 							listing.Price = n.FirstChild.Data
 							listing.Link = url
 							listingChan <- listing
@@ -46,13 +85,30 @@ func scrapePage(url string, counter *Counter, listingChan chan Listing, pageChan
 	pageChan <- true
 }
 
+func (c *Context) getRespWithProxy(getURL string) (resp *http.Response, err error) {
+	proxyUrl, err := url.Parse("http://p.webshare.io:9999/")
+	proxy := http.ProxyURL(proxyUrl)
+	transport := &http.Transport{Proxy: proxy}
+	client := &http.Client{Transport: transport}
+	req, err := http.NewRequest("GET", getURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	c.RequestCount++
+	return resp, nil
+}
+
 // getHTMLPage gets the HTML page for the specified URL.
 //
 // The function returns an HTML document object.
-func getHTMLPage(url string) *html.Node {
-	response, err := http.Get(url)
+func (c *Context) getHTMLPage(url string) *html.Node {
+	response, err := c.getRespWithProxy(url)
 	if err != nil {
-		log.Fatal("Get Error")
+		log.Fatal("Get Error: ", err, "\nRequestCount: ", c.RequestCount)
 	}
 
 	defer response.Body.Close()

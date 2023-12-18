@@ -1,12 +1,9 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"strings"
 
 	"golang.org/x/net/html"
 )
@@ -24,26 +21,6 @@ func (c *Context) incrementInProgress() {
 
 func (c *Context) incrementComplete() {
 	c.Complete++
-}
-
-func (c *Context) SetUpScraper(filename string) ([]string, error) {
-	// Open the text file.
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	// Read the lines from the file.
-	lines, err := ioutil.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert the lines to an array of strings.
-	proxies := strings.Split(string(lines), "\n")
-	c.Proxies = proxies
-	return proxies, nil
 }
 
 // scrapePage scrapes the specified URL for listings.

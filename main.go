@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
 	"golang.org/x/net/html"
 )
 
@@ -17,7 +18,7 @@ import (
 // track the number of listings that are currently being scraped. The listing
 // channel is used to send listings to the main function. The done channel is
 // used to signal that a city has been scraped.
-func searchCity(cityUrl string, pagesToSearch int, context *Context, listings chan Listing, done chan bool) {
+func searchCity(cityUrl string, pagesToSearch int, context *Context, listings chan Listing, done chan bool, bar *progressbar.ProgressBar) {
 
 	doneScrapingPage := make(chan bool)
 	for i := 0; i <= pagesToSearch; i++ {
@@ -26,7 +27,7 @@ func searchCity(cityUrl string, pagesToSearch int, context *Context, listings ch
 
 	for i := 0; i <= pagesToSearch; i++ {
 		<-doneScrapingPage
-		fmt.Println("Finished page:\t", i)
+		bar.Add(1)
 	}
 	done <- true
 
@@ -93,36 +94,41 @@ func storeValues(lc chan Listing, done chan bool, db *sql.DB) {
 //  7. Waits for all goroutines to finish.
 //  8. Prints the total number of listings that were scraped.
 func main() {
+	pagesToScan := 4
+	batchSize := 5
+
 	fmt.Println("Setting up server")
 	db := SetupDB()
 
 	fmt.Println("Server setup complete")
 
-	pagesToScan := 4
-	batchSize := 5
-
+	fmt.Println("Fetching cities")
 	context := Context{}
-	context.SetUpScraper("proxies_list.txt")
 	cities := getCities("https://geo.craigslist.org/iso/us", &context)[1:414][0:125]
+	fmt.Println("Cities fetched")
+
 	startTime := time.Now()
 	lc := make(chan Listing)
 	done := make(chan bool)
 
 	go storeValues(lc, done, db)
 
-	cityStatus := make(chan bool)
+	fmt.Println("Begin scraping")
 	for i := 0; i < len(cities); i += batchSize {
+		cityStatus := make(chan bool)
 
 		for j := i; j < i+batchSize; j++ {
 			city := cities[j]
-			fmt.Println("Searching:\t" + city)
-			go searchCity(city, pagesToScan, &context, lc, cityStatus)
+			bar := progressbar.NewOptions(pagesToScan+1,
+				progressbar.OptionSetDescription(city),
+			)
+			bar.Add(1)
+			go searchCity(city, pagesToScan, &context, lc, cityStatus, bar)
+
 		}
 
 		for j := i; j < i+batchSize; j++ {
-			city := cities[j]
 			<-cityStatus
-			fmt.Println("Finished city:\t", city)
 		}
 
 	}

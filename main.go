@@ -94,8 +94,8 @@ func storeValues(lc chan Listing, done chan bool, db *sql.DB) {
 //  7. Waits for all goroutines to finish.
 //  8. Prints the total number of listings that were scraped.
 func main() {
-	pagesToScan := 4
-	batchSize := 5
+	pagesToScan := 3
+	batchSize := 10
 
 	fmt.Println("Setting up server")
 	db := SetupDB()
@@ -104,7 +104,7 @@ func main() {
 
 	fmt.Println("Fetching cities")
 	context := Context{}
-	cities := getCities("https://geo.craigslist.org/iso/us", &context)[1:414][0:125]
+	cities := getCities("https://geo.craigslist.org/iso/us", &context)[1:414]
 	fmt.Println("Cities fetched")
 
 	startTime := time.Now()

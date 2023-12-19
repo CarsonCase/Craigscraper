@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/proxy"
 	"golang.org/x/net/html"
 )
 
@@ -32,33 +34,25 @@ func (c *Context) incrementComplete() {
 // scraped.
 // There are too layers of callback functions, 1 to find li elements, and another to find the price data WITHIN that element
 func scrapePage(url string, context *Context, listingChan chan Listing, pageChan chan bool) {
-	doc := context.getHTMLPage(url)
-	listing := Listing{}
-	findHTML(doc, func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "li" {
-			for _, a := range n.Attr {
-				if a.Key == "title" {
-					context.incrementInProgress()
-					listing = Listing{Title: a.Val}
-					break
-				}
-			}
+	c := colly.NewCollector()
+	c.OnHTML("li.cl-static-search-result", func(e *colly.HTMLElement) {
+		listing := Listing{}
+		title := e.Attr("title")
+		price := e.ChildText(".price")
+		link := e.ChildAttr("a", "href")
+		listing.Title = title
+		listing.Price = price
+		listing.Link = link
 
-			findHTML(n, func(n *html.Node) {
-				if n.Type == html.ElementNode && n.Data == "div" {
-					for _, a := range n.Attr {
-						if a.Key == "class" && a.Val == "price" {
-							context.incrementComplete()
-							listing.Price = n.FirstChild.Data
-							listing.Link = url
-							listingChan <- listing
-							break
-						}
-					}
-				}
-			})
-		}
+		listingChan <- listing
 	})
+	rp, err := proxy.RoundRobinProxySwitcher("http://p.webshare.io:9999/")
+	if err != nil {
+		log.Fatal(err)
+	}
+	c.SetProxyFunc(rp)
+	c.Visit(url)
+
 	pageChan <- true
 }
 

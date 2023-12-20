@@ -18,8 +18,10 @@ That said
 ## How to make natural text queries with Langchain
 The ai.ipynb file contains necessary code to use AI to interpret your Craigslist data!
 
-First `pip install -r requirements. txt` to install requirements
+First start a python environment and `pip install -r requirements. txt` to install requirements
 
 (this)[https://docs.datastax.com/en/astra-serverless/docs/vector-search/quickstart.html] tutorial shows how to set up an Astra Cassandra server with all the files needed in .env (shows in .env.example)
 
-Next just click through the notebook!
+Next run `python ai.py` to start publishing the scraped sqlite data to Asta.
+
+Finally use ai_query.ipynb to make some queries!
